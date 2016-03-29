@@ -40,6 +40,7 @@ FILE* fragment_file;
 char* GROUPNAME;
 int ADD_CHR = 0; // add 'chr' to chromosome names in VCF file, 1-> chr1
 int FILTER_SE = 1; 
+int OUTPUT_VCF = 0;
 
 // last modified 02/18/2016, works for both PE and SE reads 
 
@@ -52,17 +53,51 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 
 void print_options()
 {
-	fprintf(stderr,"\n PROGRAM TO analyze PCR duplicates in coordinate sorted BAM files \n\n");
-	fprintf(stderr,"./output_het_reads [options] --bam reads.sorted.bam --variants variants.file   > output.fragments \n\n");
+	fprintf(stderr,"\n PROGRAM TO calculate genotype likelihoods for variant sites using reads from coordinate sorted BAM files \n\n");
+	fprintf(stderr,"./calculate_GL [options] --bam reads.sorted.bam --variants variants.file   > output.fragments \n\n");
 	fprintf(stderr,"=============== PROGRAM OPTIONS ======================================== \n\n");
 	fprintf(stderr,"--qvoffset : quality value offset, 33/64 depending on how quality values were encoded, default is 33 \n");
 	fprintf(stderr,"--mbq  : minimum base quality to consider a base, default 13\n");
 	fprintf(stderr,"--mmq : minimum read mapping quality to consider a read, default 20\n");
 	fprintf(stderr,"--variants : variant file with genotypes for a single individual in genotype format\n");
 	fprintf(stderr,"--PEonly 0/1 : do not use single end reads, default is 1 (use all reads)\n");
+	//fprintf(stderr,"--indels 0/1 : extract reads spanning INDELS, default is 0, variants need to specified in VCF format to use this option\n");
+	//fprintf(stderr,"--outputVCF : 0 is default (output reads and filtered variants), 1: output VCF file of filtered variants, 2: do not output filtered variants\n");
 	fprintf(stderr,"\n ============================================================================ \n\n");
 	//fprintf(stderr,"--out : output file for haplotype informative fragments (hairs)\n\n");
 }
+
+double ncr(int n,int r)
+{
+        if (r ==0 || n ==r) return 0;
+        double ll =0; int i=0;
+        if (2*r > n) r = n-r;
+        for (i=0;i<r;i++)  ll += log10((double)(n-i)/(i+1));
+        return ll;
+}
+
+double binomial_test(int R, int A, double e,double* pv0,double* pv1)
+{
+        double e1 = log10(e); double e2 = log10(1.0-e); int r=0;
+        double ll = ncr(R,A) + A*e1 + (R-A)*e2; double pvlog = ll; *pv1 = ll;
+        for (r=A+1;r<R+1;r++)
+        {
+                pvlog += log10(R-r+1) - log10(r) + e1-e2;
+                if (pvlog > *pv1) *pv1 = pvlog + log10(1.0+pow(10,*pv1-pvlog));
+                else *pv1 += log10(1.0+pow(10,pvlog-*pv1));
+        }
+        pvlog = R*e2; *pv0 = pvlog;
+        for (r=1;r< A+1;r++)
+        {
+                pvlog += log10(R-r+1) - log10(r) + e1-e2;
+                if (pvlog > *pv0) *pv0 = pvlog + log10(1.0+pow(10,*pv0-pvlog));
+                else *pv0 += log10(1.0+pow(10,pvlog-*pv0));
+        }
+        return 1;
+}
+
+
+
 
 
 // algorithm : 1. read through bam file, identify reads that overlap heterozygous SNPs and output their start position, IS, allele to text file... 
@@ -268,6 +303,7 @@ int main (int argc, char** argv)
 		else if (strcmp(argv[i],"--logfile")==0 || strcmp(argv[i],"--out") ==0) logfile = fopen(argv[i+1],"w");  
 		else if (strcmp(argv[i],"--singlereads")==0) SINGLEREADS = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--maxfragments")==0) MAXFRAG = atoi(argv[i+1]);  
+		else if (strcmp(argv[i],"--outputVCF")==0) OUTPUT_VCF = atoi(argv[i+1]);  
 	}
 	if (bamfiles > 0 && strcmp(variantfile,"None") !=0)
 	{
@@ -346,6 +382,7 @@ int main (int argc, char** argv)
 
 	// print variant-list for each chromosome as it is finished processing 
         int xor = pow(2,16)-1; int c0=0,c1=0; float ratio = 0.4; int flag = 0;
+	double pv0=0,pv1=0,pv=0;
 
 	if (VCFformat ==1) 
 	{
@@ -354,20 +391,25 @@ int main (int argc, char** argv)
 			if (varlist[i].type !=0) continue;
 			if (varlist[i].genotype[0] == varlist[i].genotype[2]) continue;
 			c0 = (varlist[i].A1>>16) + (varlist[i].A1 & xor); c1 = (varlist[i].A2>>16) + (varlist[i].A2 & xor); 
-			if (varlist[i].depth < 8 || c1 < 4) continue; 
-			ratio = (float)c1/varlist[i].depth;  flag = 0;
-			if (varlist[i].depth < 20 && ( ratio < 0.3 || ratio > 0.7)) flag = 1; 
-			if (ratio < 0.3 || ratio > 0.7) flag = 1; 
+			if (OUTPUT_VCF ==3 && (ratio < 0.3 || ratio > 0.7) && varlist[i].depth >= 30) fprintf(stdout,"#variant-all %d %s %s %d %d %s %s ref:%d:%d alt:%d:%d %d:%d:%0.3f depth %d\n",i,varlist[i].genotype,varlist[i].chrom,varlist[i].position,varlist[i].type,varlist[i].RA,varlist[i].AA,varlist[i].A1>>16,varlist[i].A1 & xor,varlist[i].A2>>16,varlist[i].A2 & xor,c0,c1,ratio,varlist[i].depth);
+			if (varlist[i].depth > 0) ratio = (float)c1/varlist[i].depth;  else ratio = 0.0; 
+
+			if (OUTPUT_VCF ==0) 
+			{
+				binomial_test(c0+c1,c0,0.5,&pv0,&pv1); pv = pv0; if (pv1 < pv) pv = pv1; 
+				flag = 0; if ( (ratio < 0.1 || ratio > 0.9) && varlist[i].depth >= 30) flag = 1; if (varlist[i].depth < 1) flag = 1;   
+				if (flag ==1) 
+				{
+					if (varlist[i].depth > 0) fprintf(stdout,"#filtered %d %s %s %d %d %s %s ref:%d:%d alt:%d:%d %d:%d:%0.3f pv:%f\n",i,varlist[i].genotype,varlist[i].chrom,varlist[i].position,varlist[i].type,varlist[i].RA,varlist[i].AA,varlist[i].A1>>16,varlist[i].A1 & xor,varlist[i].A2>>16,varlist[i].A2 & xor,c0,c1,ratio,pv);
+				}
+				else fprintf(stdout,"#variant %d %s %s %d %d %s %s ref:%d:%d alt:%d:%d %d:%d:%0.3f\n",i,varlist[i].genotype,varlist[i].chrom,varlist[i].position,varlist[i].type,varlist[i].RA,varlist[i].AA,varlist[i].A1>>16,varlist[i].A1 & xor,varlist[i].A2>>16,varlist[i].A2 & xor,c0,c1,ratio);
+			}
+
+			flag = 0; if (c1 < 4 || varlist[i].depth < 8) flag = 1; if (ratio < 0.3 || ratio > 0.7) flag = 1; 
 			if (flag ==1) continue; 
-			fprintf(stdout,"#variant %d %s %s %d %d %s %s ref:%d:%d alt:%d:%d %d:%d:%0.3f\n",i,varlist[i].genotype,varlist[i].chrom,varlist[i].position,varlist[i].type,varlist[i].RA,varlist[i].AA,varlist[i].A1>>16,varlist[i].A1 & xor,varlist[i].A2>>16,varlist[i].A2 & xor,c0,c1,ratio);
-			//fprintf(stdout,"#VCF %s\t%d\t%d\t%s\t%s\t.\tPASS\tREF=%d,ALT=%d\tGT:DP\t0/1:%d\n",varlist[i].chrom,varlist[i].position,i,varlist[i].RA,varlist[i].AA,c0,c1,varlist[i].depth);
+			if (OUTPUT_VCF ==1) fprintf(stdout,"%s\t%d\t%d\t%s\t%s\t.\tPASS\tREF=%d,ALT=%d\tGT:DP\t0/1:%d\n",varlist[i].chrom,varlist[i].position,i,varlist[i].RA,varlist[i].AA,c0,c1,varlist[i].depth);
 		}
 	}
-	/*
-		python code can read entire file and get list of het variants, store it in a hashtable... and then filter reads on the fly
-        */
-
-
 	return 0;
 }
 
