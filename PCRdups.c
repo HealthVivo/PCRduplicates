@@ -13,12 +13,13 @@
 #include "hapfragments.h"
 
 #define OUTPUT_THIRD_ALLELE 
+//#define SOFT_CLIP_EXTEND  // if enabled, soft-clip portion of read is used for finding variants 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 int MINQ = 13; // minimum base quality
-int MIN_MQ = 20; // minimum read mapping quality
+int MIN_MQ = 30; // minimum read mapping quality
 int MAX_IS =  1000; // maximum insert size
 int MIN_IS =  0; // maximum insert size
 int PEONLY = 0; // if this is set to 1, reads for which only one end is mapped are not considered for hairs 
@@ -41,6 +42,9 @@ char* GROUPNAME;
 int ADD_CHR = 0; // add 'chr' to chromosome names in VCF file, 1-> chr1
 int FILTER_SE = 1; 
 int OUTPUT_VCF = 0;
+int OUTPUT_FR = 0;  // only output first in pair reads (flag = 64) that overlap het vars
+int TREAT_SE = 0; // treat PE bam file as single-end, read1 if value = 1, read2 is output if value = 2
+int FILTER_DUPS = 0; 
 
 // last modified 02/18/2016, works for both PE and SE reads 
 
@@ -53,14 +57,14 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 
 void print_options()
 {
-	fprintf(stderr,"\n PROGRAM TO calculate genotype likelihoods for variant sites using reads from coordinate sorted BAM files \n\n");
-	fprintf(stderr,"./calculate_GL [options] --bam reads.sorted.bam --variants variants.file   > output.fragments \n\n");
+	fprintf(stderr,"\n PROGRAM TO estimate read duplicate cluster counts and extract reads overlapping heterozygous variants from sorted BAM files \n\n");
+	fprintf(stderr,"./extract_duplicates [options] --bam reads.sorted.bam --VCF variants.vcf   > output.reads \n\n");
 	fprintf(stderr,"=============== PROGRAM OPTIONS ======================================== \n\n");
-	fprintf(stderr,"--qvoffset : quality value offset, 33/64 depending on how quality values were encoded, default is 33 \n");
 	fprintf(stderr,"--mbq  : minimum base quality to consider a base, default 13\n");
-	fprintf(stderr,"--mmq : minimum read mapping quality to consider a read, default 20\n");
-	fprintf(stderr,"--variants : variant file with genotypes for a single individual in genotype format\n");
-	fprintf(stderr,"--PEonly 0/1 : do not use single end reads, default is 1 (use all reads)\n");
+	fprintf(stderr,"--mmq : minimum read mapping quality to consider a read, default 30\n");
+	fprintf(stderr,"--treatSE 0/1: consider paired-end reads as Single End (first in pair), default 0\n");
+	fprintf(stderr,"--filterdups 0/1: discard reads marked as Duplicates (cigar flag of 1024), default 0\n");
+	//fprintf(stderr,"--variants : variant file with genotypes for a single individual in genotype format\n");
 	//fprintf(stderr,"--indels 0/1 : extract reads spanning INDELS, default is 0, variants need to specified in VCF format to use this option\n");
 	//fprintf(stderr,"--outputVCF : 0 is default (output reads and filtered variants), 1: output VCF file of filtered variants, 2: do not output filtered variants\n");
 	fprintf(stderr,"\n ============================================================================ \n\n");
@@ -148,20 +152,26 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 	samfile_t *fp;
 	if ((fp = samopen(bamfile, "rb", 0)) == 0) { fprintf(stderr, "Fail to open BAM file %s\n", bamfile); return -1; }
 	bam1_t *b = bam_init1();
-	int flag = 0; int reads1=0;
+	int flag = 0; int reads1=0; int r1 = 0; int strand = 0;
 
 	while (samread(fp, b) >= 0)
 	{
 		reads1 +=1;
 		flag = 0; 
-		fetch_func(b, fp,read); 
+		fetch_func(b, fp,read);  
+		if (FILTER_DUPS ==1 && read->flag > 256) flag = 1; 
 		if ((read->flag & (BAM_FUNMAP)) || read->mquality < MIN_MQ || (read->flag & 256)) flag = 1; 
 		// also ignore non-primary alignments, BWA MEM and output cigar for read
 		if ((read->flag & 1) && (read->IS ==0 || (read->flag & 8) || read->tid != read->mtid) )  flag = 1; 
 		// we should filter single-end reads in a file with both single-end and paired-end reads ?? unlikely 
 		if (FILTER_SE ==1 && (read->flag & 1) ==0) flag = 1; 
-		reads+=1; if (reads%2000000 ==0) fprintf(stderr,"processed %d reads, useful fragments %d, filtered-reads %d current read->tid %d\n",reads,useful_reads,PCRdups_stats[0],read->tid);
 
+		if (flag ==0 && TREAT_SE ==1) // treat PE read as single-end read, read1 only 
+		{
+			r1 = read->flag & 64; if (r1 == 0 || read->IS ==0) flag =1;  
+			read->IS = 0;  FILTER_SE = 0;  strand = read->flag & 16; read->flag = strand; read->mateposition = 0; read->mtid = -1;
+		}
+		reads+=1; if (reads%2000000 ==0) fprintf(stderr,"processed %d reads, useful fragments %d, filtered-reads %d current read->tid %d\n",reads,useful_reads,PCRdups_stats[0],read->tid);
 		if (flag ==1) 
 		{
 			PCRdups_stats[0] +=1; 	free_readmemory(read); continue;
@@ -195,8 +205,9 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 		{
 			fragment.id = read->readid;
 			v1 = extract_variants_read(read,ht,chromvars,varlist,0,&fragment,chrom,reflist);
-			if (fragment.variants > 0) 
+			if (fragment.variants > 0 && (OUTPUT_FR == 0 || ((read->flag & 64) == 64) ) ) 
 			{
+				if ((read->flag & 64) == 64) r1 = 1; else r1 = 2;
 				//fprintf(stderr,"reads %d flag %d\n",reads1,flag);
 				// consider overlapping paired-end reads, simple solution, if variant in read starts after mateposition, ignore it to avoid double counting
 				//if (read->IS != 0 && (( read->flag & 8) == 0)) 
@@ -304,6 +315,9 @@ int main (int argc, char** argv)
 		else if (strcmp(argv[i],"--singlereads")==0) SINGLEREADS = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--maxfragments")==0) MAXFRAG = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--outputVCF")==0) OUTPUT_VCF = atoi(argv[i+1]);  
+		else if (strcmp(argv[i],"--outputFR")==0) OUTPUT_FR = atoi(argv[i+1]);  
+		else if (strcmp(argv[i],"--treatSE")==0) TREAT_SE = atoi(argv[i+1]);  
+		else if (strcmp(argv[i],"--filterdups")==0) { FILTER_DUPS = atoi(argv[i+1]); fprintf(stderr,"read duplicates marked in BAM file will be ignored \n"); } 
 	}
 	if (bamfiles > 0 && strcmp(variantfile,"None") !=0)
 	{
@@ -405,9 +419,13 @@ int main (int argc, char** argv)
 				else fprintf(stdout,"#variant %d %s %s %d %d %s %s ref:%d:%d alt:%d:%d %d:%d:%0.3f\n",i,varlist[i].genotype,varlist[i].chrom,varlist[i].position,varlist[i].type,varlist[i].RA,varlist[i].AA,varlist[i].A1>>16,varlist[i].A1 & xor,varlist[i].A2>>16,varlist[i].A2 & xor,c0,c1,ratio);
 			}
 
-			flag = 0; if (c1 < 4 || varlist[i].depth < 8) flag = 1; if (ratio < 0.3 || ratio > 0.7) flag = 1; 
+			flag = 0; if (c1 < 3 || varlist[i].depth < 8) flag = 1; if (ratio < 0.3 || ratio > 0.7) flag = 1; 
+			if (flag ==0) 
+			{
+				if (OUTPUT_VCF == 4) fprintf(stdout,"#variant %d %s %s %d %d %s %s ref:%d:%d alt:%d:%d %d:%d:%0.3f pv:%f\n",i,varlist[i].genotype,varlist[i].chrom,varlist[i].position,varlist[i].type,varlist[i].RA,varlist[i].AA,varlist[i].A1>>16,varlist[i].A1 & xor,varlist[i].A2>>16,varlist[i].A2 & xor,c0,c1,ratio,pv);
+			}
 			if (flag ==1) continue; 
-			if (OUTPUT_VCF ==1) fprintf(stdout,"%s\t%d\t%d\t%s\t%s\t.\tPASS\tREF=%d,ALT=%d\tGT:DP\t0/1:%d\n",varlist[i].chrom,varlist[i].position,i,varlist[i].RA,varlist[i].AA,c0,c1,varlist[i].depth);
+			if (OUTPUT_VCF ==1) fprintf(stdout,"#VCFchr%s\t%d\t%d\t%s\t%s\t.\tPASS\tREF=%d,ALT=%d\tGT:DP\t0/1:%d\n",varlist[i].chrom,varlist[i].position,i,varlist[i].RA,varlist[i].AA,c0,c1,varlist[i].depth);
 		}
 	}
 	return 0;

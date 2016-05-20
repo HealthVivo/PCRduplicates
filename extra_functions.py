@@ -1,8 +1,27 @@
 #! /usr/bin/env python
 # AUTHOR VIKAS BANSAL last edited dec 2014
 import sys, os, glob, string, subprocess,time, math, random
+from scipy import stats
+from numpy import random
 
 VERBOSE =0;
+
+## use multinomial distribution to sample with replacement from counts for each class (cluster = i), Bootstrap of PCR duplication rate estimate 
+def generate_bsample(duplicate_counts,n):
+	new_counts= []; new_counts.append(duplicate_counts[0]); new_counts.append(duplicate_counts[1]); 
+
+	for i in xrange(2,n):
+		N = duplicate_counts[i][1]; 
+		if N < 2: new_counts.append(duplicate_counts[i]); continue; 
+		pvals = []; 
+		for j in xrange(2,len(duplicate_counts[i])): pvals.append(float(duplicate_counts[i][j])/N); 
+		#print >>sys.stderr, "PVALS",pvals,duplicate_counts[i]
+		S = random.multinomial(N,pvals); 
+		new_counts.append(duplicate_counts[i]); 
+		for j in xrange(2,len(duplicate_counts[i])): new_counts[-1][j] = S[j-2]; 
+		print 'BOOTSTRAP-counts',i,new_counts[i]; 
+	return new_counts;
+	
 
 ## this function should be applied to clusters estimated from entire data | not just clusters that overlap het SNPS !! | makes sense 
 # n = cluster size - 1 | p = f/2 
@@ -42,24 +61,131 @@ def merge_readpair(read1,read2):
         i = 0;
         while i < len(varlist)-1:
                 if varlist[i][0] != varlist[i+1][0]: newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i][2]);
-                elif varlist[i][0] == varlist[i+1][0] and varlist[i][1] != varlist[i+1][1]: newread[6].append(varlist[i][0] + ':' + '?' + ':'+varlist[i][2]);
-                elif varlist[i][0] == varlist[i+1][0] and varlist[i][1] == varlist[i+1][1] and varlist[i][2] >= varlist[i+1][2]: newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i][2]);
-                elif varlist[i][0] == varlist[i+1][0] and varlist[i][1] == varlist[i+1][1] and varlist[i][2] < varlist[i+1][2]: newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i+1][2]);
+		else: ## duplicate coverage of variant  
+			if (varlist[i+1][1] == '?' or varlist[i+1][1] == '*'): newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i][2]);
+			elif (varlist[i][1] == '?' or varlist[i][1] == '*'): newread[6].append(varlist[i+1][0] + ':' + varlist[i+1][1] + ':'+varlist[i+1][2]);
+			elif varlist[i][1] != varlist[i+1][1]: newread[6].append(varlist[i][0] + ':' + '?' + ':'+varlist[i][2]);
+			elif varlist[i][1] == varlist[i+1][1] and varlist[i][2] >= varlist[i+1][2]: newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i][2]);
+			elif varlist[i][1] == varlist[i+1][1] and varlist[i][2] < varlist[i+1][2]: newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i+1][2]);
+
                 if varlist[i][0] == varlist[i+1][0]: i +=2;
                 else: i +=1;
         if i < len(varlist) and varlist[i][0] != varlist[i-1][0]: newread[6].append(varlist[i][0] + ':' + varlist[i][1] + ':'+varlist[i][2]);
         return newread;
         print newread;
 
-
-def get_variants(filename,firstcol):
-	het_vars = {};nhets=0;
+# function to analyze heterozygous variants from output of PCRdups.c  
+def get_variants(filename,filtertype):
+	het_vars = {}; nhets=0;
+	variants = {}; varinfo = {}; 
 	File = open(filename,'r');  print >>sys.stderr, "reading input file to obtain list of het variants";
 	for line in File:
 		if line[0] == '#':
-			if line.strip().split()[0] == firstcol: v = line.split(); het_vars[int(v[1])] = 1; nhets +=1;
-		#if v[0] == '#variant': 
-	File.close(); print >>sys.stderr, "identified",nhets,"het variants";
+			if line[1] == 'c' and line[2] == 'l': print >>sys.stderr, line
+			if (line[1] == 'v' and line[2] == 'a') or (line[1] == 'f' and line[2] == 'i'): 
+				variant = line.strip().split(); varid = int(variant[1]); info = variant[3] + ':'+variant[4] + '-' + `(int(variant[4])+1)`; 
+				varinfo[varid] = info;
+			pass;
+			#if line.strip().split()[0] == firstcol: v = line.split(); het_vars[int(v[1])] = 1; nhets +=1;
+		else: 
+			read = line.strip().split();
+			try: 
+				pos = int(read[2]); IS = int(read[4]); cigar  = read[5]; 
+				for i in xrange(6,len(read)): 
+					var = read[i].split(':'); varid = int(var[0]); allele = var[1]; qv = var[2];
+				rn = random.random(); # append random number to list so that when we sort, we can pick first element from each duplicate cluster to get random sample 
+				try: 
+					variants[varid].append([pos,IS,rn,allele,qv,cigar]); 
+				except KeyError: variants[varid] = [[pos,IS,rn,allele,qv,cigar]]; 
+			except ValueError: pass; 
+	File.close(); 
+
+	filtered = 0; high = [0.0000001,0.0,0.0];
+	for var in variants.iterkeys():
+		readlist = variants[var]; readlist.sort(key=lambda i: (i[0],i[1],i[2])); l = len(readlist);
+		## find # of unique reads in list and then allele counts for a random set of unique reads from list 
+		unique = 1; a0 =0; a1 = 0; a0t = 0; a1t = 0; coverage=1;
+		if readlist[0][3] == '0': a0 +=1; a0t +=1; 
+		elif readlist[0][3] == '1': a1 +=1;  a1t +=1; 
+
+		if filtertype == "nobias": ## randomly select two reads from list, make sure they are not the same and they don't have missing alleles.... 
+			a0 = 0; a1 = 0; coverage =0;  
+			#print 'var:',var,len(readlist),'clusters:',readlist;
+			for i in xrange(l):
+				#if ord(readlist[i][4][0])-33 < 20: continue; 
+				if readlist[i][3] == '0': a0 +=1; 
+				elif readlist[i][3] == '1': a1 +=1;  
+			coverage = a0 + a1; 
+			if coverage > 1 and random.random()*coverage*coverage < 2*a0*a1: het_vars[var] = 1; nhets +=1;
+                        else: filtered +=1;
+			continue; 
+
+		if filtertype == "exome.nodups":
+			
+			csize = 1; a0 = 0; a1 = 0; coverage =0;  
+			for i in xrange(1,l):
+				if readlist[i-1][0] != readlist[i][0] or readlist[i-1][1] != readlist[i][1]: pass; 
+				
+		elif filtertype == "exome.allreads":
+			csize = 1; 
+			print 'var:',var,len(readlist),'clusters:',
+			for i in xrange(1,l):
+				if readlist[i-1][0] != readlist[i][0] or readlist[i-1][1] != readlist[i][1]: 
+					unique +=1; 
+					if csize ==1: 
+						if readlist[i][3] == '0': a0 +=1; 
+						elif readlist[i][3] == '1': a1 +=1;  
+						coverage +=1; 
+					elif csize ==4: print 'cs:'+ `csize` + ':' + readlist[i-1][3] + readlist[i-2][3] + readlist[i-3][3] + readlist[i-4][3],
+					csize = 0;
+				if readlist[i][3] == '0': a0 +=1; 
+				elif readlist[i][3] == '1': a1 +=1;  
+				coverage +=1;
+				csize +=1; 
+			print '| unique',unique,a0,a1;
+			
+		else: 
+			for i in xrange(1,l):
+				if readlist[i][3] == '0': a0t +=1; 
+				elif readlist[i][3] == '1': a1t +=1;  
+				
+				if readlist[i-1][0] != readlist[i][0] or readlist[i-1][1] != readlist[i][1]: 
+					unique +=1; 
+					if readlist[i][3] == '0': a0 +=1; 
+					elif readlist[i][3] == '1': a1 +=1;  
+					coverage +=1;
+
+
+		ratio = float(a0)/(a0+a1+1.0e-8); pval = 1.0;
+		if (ratio < 0.4 or ratio > 0.6) and coverage >= 10: pval = stats.binom_test(a0,a0+a1,0.5); 
+		
+		if filtertype == "none": het_vars[var] = 1; nhets +=1; ## no filtering at all..
+		elif "exome" in filtertype or filtertype == 'dna': 
+			if pval >= 0.001 and a1 >= 2 and coverage >= 8: het_vars[var] = 1; nhets +=1;
+			else: filtered +=1;  
+		elif filtertype == "rna" or filtertype == "rnaout": 
+			if (ratio < 0.1 or ratio > 0.9) and coverage >=10 and var in varinfo: print 'FALSE-het',varinfo[var],len(readlist),unique,a0,a1,round(ratio,4),pval; high[1] +=1; 
+			if coverage >=10: high[0] +=1; 
+			if coverage >=30: high[2] +=1; 
+			if (ratio < 0.1 or ratio > 0.9) and coverage >=30: 
+				filtered +=1; pass;  
+			else: het_vars[var] = 1; nhets +=1;
+		elif filtertype == "rnastrict": 
+			if (ratio < 0.2 or ratio > 0.8) and coverage >=25: filtered +=1; pass;  
+			else: het_vars[var] = 1; nhets +=1;
+
+		"""
+		if coverage >= 10: 
+			print 'VARCOV',var,len(readlist),unique,a0,a1,round(ratio,4),pval,
+			if var in varinfo: print varinfo[var],
+			if pval < 0.001: print 'flag';
+			else: print '\n',
+		"""
+		
+		#,a0t,a1t#,readlist[0:min(20,len(readlist))],'\n'
+	
+	print >>sys.stderr, "identified",nhets,"het variants",'filtered',filtered,'high-cov',high[0],high[1],high[1]/high[0],high[2];
+	if filtertype == "rnaout": sys.exit();
 	return [het_vars,nhets];
 
 
@@ -117,7 +243,7 @@ def simple_method_estimates(duplicate_counts,MAX_CLUSTER_SIZE):
 		EXP_SUM += EXP; total_reads += i*duplicate_counts[i][0]; unique_reads += EXP_SUM*duplicate_counts[i][0]; PCRrate = 1.0-unique_reads/total_reads;
 		print >>sys.stderr, "dup-counts-simdata",i,'EXP_i',round(EXP,4),round(EXP_SUM,4),'PCR-rate',round(PCRrate,4),duplicate_counts[i]
 
-	
+
 def estimate_allele_bias(read,counts,QV_THRESH,AB_counts):
 	varlist = read[6]
 	for i in xrange(len(varlist)):

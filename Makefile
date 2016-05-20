@@ -11,5 +11,5 @@ all:
 	$(MAKE) PCR
 
 PCR: PCRdups.c 
-	$(CC) -I$(SAMTOOLS) -I$(HAPCUT) -g -O2 parsebam/bamread.o parsebam/hapfragments.o parsebam/hashtable.o parsebam/readfasta.o parsebam/readvariant.o -o a.out PCRdups.c -L$(HAPCUT) -L$(SAMTOOLS) -lbam -lm -lz
+	$(CC) -I$(SAMTOOLS) -I$(HAPCUT) -g -O2 parsebam/bamread.o parsebam/hapfragments.o parsebam/hashtable.o parsebam/readfasta.o parsebam/readvariant.o -o extract_duplicates PCRdups.c -L$(HAPCUT) -L$(SAMTOOLS) -lbam -lm -lz
 
