@@ -3,13 +3,7 @@
 import sys, os, glob, string, subprocess,time, math, random
 from scipy import optimize# import minimize_scalar
 
-## latest code, last updated feb 17 2016 
-#python code/cluster_PCRdups.py data/2_B_12.reads.new > clusters
-
-## calculate false PCR duplication rate using output from PCRdups.c 
-## also determine number of duplicates per fragment (poisson or other distribution), depends on fragment length, GC content... 
-## probability that a pair of false PCR duplicates is real also depends on cluster size
-## we are only looking at reads that cover a heterozygous SNP... limited sample but almost random since SNPs should be independnet of PCR duplication
+## calculate PCR duplication rate using output from PCRdups.c 
 
 QV_THRESH = 0.01;
 VERBOSE =1;
