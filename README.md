@@ -9,8 +9,8 @@ PCR amplification is an important step in the preparation of DNA sequencing libr
 
 # TWO STEP PROCESS 
 
-1. copy the 'parsebam' source code directory from the HapCUT repository and add to the PCRduplicates code directory
-2. make all 
+1. make all 
 
-3. ./a.out --bam sample.bam --VCF variants.VCF > sample.hetreads 
-4. python cluster\_reads.py sample.hetreads > sample.PCRdups 
+2. ./extract\_duplicates --bam sample.bam --VCF variants.VCF > sample.hetreads 
+3. python estimate\_PCRduprate.py sample.hetreads rna > sample.PCRdups 
+4. grep FINAL\_PCR\_RATE sample.PCRdups > sample.PCRduprate.estimate 
