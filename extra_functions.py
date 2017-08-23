@@ -89,6 +89,7 @@ def get_variants(filename,filtertype):
 			#if line.strip().split()[0] == firstcol: v = line.split(); het_vars[int(v[1])] = 1; nhets +=1;
 		else: 
 			read = line.strip().split();
+			if len(read) < 5: continue;
 			try: 
 				pos = int(read[2]); IS = int(read[4]); cigar  = read[5]; 
 				for i in xrange(6,len(read)): 

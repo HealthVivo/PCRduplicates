@@ -2,6 +2,8 @@
 # AUTHOR VIKAS BANSAL last edited dec 2014
 import sys, os, glob, string, subprocess,time, math, random
 from scipy import optimize# import minimize_scalar
+from optparse import OptionParser
+
 
 ## calculate PCR duplication rate using output from PCRdups.c 
 
@@ -19,9 +21,8 @@ max_cluster_size = 0;
 import extra_functions
 
 PFLAG = 1; 
-SCALING = 0; 
+SCALING = 1; 
 
-## note that c2 is under-estimated... but we are not using c2 in the estimation, so it is okay 03/23/16
 ## pass Lambdas, counts_IND to this function 
 def sorted_partitions(n,Lambda,counts_IND,c0,c1,c2,pcr_prev):
 	## ignore first and last element of  list since they need to be estimated... we can calculate the sum of remaining elements... 
@@ -316,17 +317,26 @@ def process_readlist(readlist,duplicate_counts,duplicate_counts0,clus2,clus3,chr
 ########################################## MAIN CODE ##########################################################
 	
 
+RANDOM_SAMPLE = 1.0; 
+parser = OptionParser();
+parser.add_option("-i","--input",dest="inputfile",type="string",help="input file with reads overlapping heterozygous variants derived from BAM file",default="None");
+parser.add_option("-f","--filter",dest="varfilter",type="string",help="filter variants based on allele counts, \'exome\' or \'rna\' for RNA-seq ",default="exome");
+parser.add_option("-s","--scaling",dest="scaling",type="int",help="scale the cluster counts (0/1), default =1",default=1);
+parser.add_option("-r","--random",dest="random",type="float",help="random sampling of reads (fraction)",default=1.0); 
+parser.add_option("-o","--output",dest="outfile",type="string",help="file to output statistics",default="None"); 
+(options,args) = parser.parse_args(); 
+SCALING = options.scaling; RANDOM_SAMPLE = options.random; FILTER = options.varfilter; INPUT_FILE = options.inputfile;
+
+
+if options.inputfile == "None": 
+	print >>sys.stderr, "\nPROGRAM to estimate PCR duplication rate of DNA and RNA-seq datasets (Illumina)\n "; 
+        parser.print_help()
+	sys.exit(); 
+
 clus2 = [0,0,0]; clus3 = [0,0,0,0]; 
-
-if len(sys.argv) < 3: 
-	print >>sys.stderr, "python estimate_PCRduprate.py input.reads rna/exome > output.estimates "; sys.exit(); 
-if len(sys.argv) > 3: SCALING = int(sys.argv[3]); 
-if len(sys.argv) > 4: RANDOM_SAMPLE = float(sys.argv[4]); 
-else: RANDOM_SAMPLE = 1.0; 
-
 print "run command",sys.argv
 #### get list of heterozygous variants from PCRdups.c output file 02/22/16, initial pass through file
-[het_vars,nhets] = extra_functions.get_variants(sys.argv[1],sys.argv[2]); 
+[het_vars,nhets] = extra_functions.get_variants(INPUT_FILE,FILTER); 
 list_of_deleted_vars = []; deleted = 0; 
 for key in het_vars.iterkeys():
 	if random.random() > RANDOM_SAMPLE: list_of_deleted_vars.append(key); nhets -=1; deleted +=1; 
@@ -346,7 +356,7 @@ for c in xrange(MAX_CLUSTER_SIZE):
 ## for i=2, total_uf, total, 00,01  | 000 001 | 0000 0001 0011 | 00000 00001 00011 | 000000 000001 000011 000111 size =  n/2 + 1 
 
 filteredreads = 0; realdata = 0;
-File = open(sys.argv[1],'r');
+File = open(INPUT_FILE,'r');
 for line in File: 
 	read = line.strip().split();
 
@@ -396,7 +406,6 @@ if len(readlist) > 0 and 'X' not in chrom and 'Y' not in chrom:
 ##### FINAL CALCULATIONS #######
 
 
-### this includes chrom 6 -> we should exclude ?? 
 ### analysis of total duplication clusters (not just that overlap SNPs) 
 total = 1.0e-8; unique = 0.0; unique_corrected= 0.0; 
 for c in xrange(1,len(cluster_counts)): total += cluster_counts[c]*c; unique += cluster_counts[c];
@@ -406,7 +415,8 @@ duprate = 1.0-round(unique/total,4);
 
 [Frate,Ftotal,Funique,Funiqlist] = calculate_values(duplicate_counts,cluster_counts); 
 if realdata ==1: print "cluster-statistics:",duprate,unique,total,cluster_count_string.split()[1:10]
-print "FINAL_PCR_RATE",Frate,duprate,Ftotal,Funique,nhets,Funiqlist
+print "FINAL_PCR_RATE",Frate,'READ_DUPLICATION_RATE',duprate; 
+#Ftotal,Funique,nhets,Funiqlist
 
 p = float(AB_counts[0])/(AB_counts[0] + AB_counts[1]); 
 if PFLAG: print >>sys.stderr, 'AB_counts',AB_counts[0],AB_counts[1],p,'SCALED:',0.5/p,0.5/(1.0-p),(p*p)/0.25,(1.0-p)*(1.0-p)/0.25,p*(1.0-p)/0.25;
@@ -414,28 +424,17 @@ for i in xrange(2,min(max_cluster_size,MAX_CLUSTER_SIZE)):  ## scale counts to a
 	if cluster_counts[i] < 50 or duplicate_counts[i][0] < 20:  continue;
 	print 'counts-',i,duplicate_counts[i],duplicate_counts0[i]
 
-"""
-sys.exit();	
-random.seed();
-for bs in xrange(1):
-	n = len(duplicate_counts); new_counts = extra_functions.generate_bsample(duplicate_counts,n); 
-	PFLAG = 0; 
-	[Frate,Ftotal,Funique,Funiqlist] = calculate_values(new_counts,cluster_counts);
-	print "BOOTSTRAP_PCR_RATE:",bs,Frate,duprate,Ftotal,Funique,Funiqlist
-"""	
 
 
 ## call function with clus2, clus3, duplicate_counts 
 f1 = 0.0; f2=0.0;
 if clus2[0] + clus2[1] >= 10:	
-	y1 = float(clus2[1])/(clus2[0]+clus2[1]+1); f1 = y1*2; print "Final results for",sys.argv[1], 'clusters-2',clus2[0],clus2[1],y1,'f2=',f1;
+	y1 = float(clus2[1])/(clus2[0]+clus2[1]+1); f1 = y1*2; print "Final results for",INPUT_FILE, 'clusters-2',clus2[0],clus2[1],y1,'f2=',f1;
 if clus3[0] + clus3[1] >= 10: 
-	y2 = 1.0 - math.sqrt(float(clus3[0])/(clus3[0]+clus3[1])); f2 = y2*2; print "Final results for",sys.argv[1], 'clusters-3',clus3[0],clus3[1],y2,'f3=',f2;
+	y2 = 1.0 - math.sqrt(float(clus3[0])/(clus3[0]+clus3[1])); f2 = y2*2; print "Final results for",INPUT_FILE, 'clusters-3',clus3[0],clus3[1],y2,'f3=',f2;
 #return [f1,f2];
 fest = f1; 
 
-#CSIZE = 2; x_min = optimize.fminbound(llfunc,0.0001,0.9999,full_output=1,disp=1); print x_min[0]; fest = x_min[0];
-#CSIZE = -1; x_min = optimize.fminbound(llfunc,0.0001,0.9999,full_output=1,disp=1); print x_min[0]; fjoint = x_min[0] #fest = x_min[0];
 ## calculate duplication rate; 
 ## print distribution of duplicate cluster sizes
 total = 0; unique = 0; unique_corrected= [0.0,0.0];
