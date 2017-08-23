@@ -375,10 +375,10 @@ int main (int argc, char** argv)
 	{
 		if (read_fastaheader(fastafile,reflist) > 0) 
 		{
-			reflist->sequences = (char**)malloc(sizeof(char*)*reflist->ns);
+			reflist->sequences = (unsigned char**)malloc(sizeof(unsigned char*)*reflist->ns);
 			for (i=0;i<reflist->ns;i++)
 			{
-				reflist->sequences[i] = (char*)malloc(reflist->lengths[i]+1);
+				reflist->sequences[i] = (unsigned char*)malloc(reflist->lengths[i]+1);
 				if (i < 5) fprintf(stderr,"contig %s length %d\n",reflist->names[i],reflist->lengths[i]);
 			}
 			read_fasta(fastafile,reflist);
