@@ -292,7 +292,7 @@ int main (int argc, char *argv[])
 	int i=0,j=0,variants=0,hetvariants=0;
 	int bamfiles =0, vfile = 0;
 
-	fprintf(stderr,"DEBUG: # of args %d \n",argc); for (i=0;i<argc;i++) fprintf(stderr,"argument %d %s \n",argv[i]); 
+	fprintf(stderr,"DEBUG: # of args %d \n",argc); for (i=0;i<argc;i++) fprintf(stderr,"argument %d %s \n",i,argv[i]); 
 
 	logfile = NULL;
 	for (i=1;i<argc;i+=2)
