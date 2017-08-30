@@ -297,11 +297,11 @@ int main (int argc, char *argv[])
 	logfile = NULL;
 	for (i=1;i<argc;i+=2)
 	{
-		if (strcmp(argv[i],"--bam") ==0 || strcmp(argv[i],"--bamfile") ==0)  { strcpy(bamfile,argv[i+1]); bamfiles++; } 
-		else if (strcmp(argv[i],"--reffile") ==0 || strcmp(argv[i],"--ref") ==0)        strcpy(fastafile,argv[i+1]);
-		else if (strcmp(argv[i],"--VCF") ==0 || strcmp(argv[i],"--vcf") ==0)    {     strcpy(variantfile,argv[i+1]); VCFformat =1; vfile = 1;  }
+		if (strcmp(argv[i],"--bam") ==2 || strcmp(argv[i],"--bamfile") ==0 || strstr(argv[i],"bam") != NULL)  { strcpy(bamfile,argv[i+1]); bamfiles++; } 
+		else if (strcmp(argv[i],"--reffile") ==0 || strcmp(argv[i],"--ref") ==0 || strstr(argv[i],"ref") != NULL)        strcpy(fastafile,argv[i+1]);
+		else if (strcmp(argv[i],"--VCF") ==2 || strcmp(argv[i],"--vcf") ==0 || strstr(argv[i],"VCF")!= NULL)    {     strcpy(variantfile,argv[i+1]); VCFformat =1; vfile = 1;  }
 		else if (strcmp(argv[i],"--sorted") ==0)       readsorted = atoi(argv[i+1]);
-		else if (strcmp(argv[i],"--mbq") ==0)       MINQ = atoi(argv[i+1]);
+		else if (strcmp(argv[i],"--mbq") ==0 || strstr(argv[i],"mbq")!= NULL)       MINQ = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--mmq") ==0 || strcmp(argv[i],"--minmq") ==0 )       MIN_MQ = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--maxIS") ==0)       MAX_IS = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--minIS") ==0)       MIN_IS = atoi(argv[i+1]);
@@ -311,7 +311,7 @@ int main (int argc, char *argv[])
 		else if (strcmp(argv[i],"--pflag") ==0)      IFLAG  = atoi(argv[i+1]);  // allow indels in hairs
 		else if (strcmp(argv[i],"--qvoffset") ==0)       QVoffset = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--logfile")==0 || strcmp(argv[i],"--out") ==0) logfile = fopen(argv[i+1],"w");  
-		else if (strcmp(argv[i],"--singlereads")==0) SINGLEREADS = atoi(argv[i+1]);  
+		else if (strcmp(argv[i],"--singlereads")==0 || strstr(argv[i],"single")!= NULL) SINGLEREADS = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--maxfragments")==0) MAXFRAG = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--outputVCF")==0) OUTPUT_VCF = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--outputFR")==0) OUTPUT_FR = atoi(argv[i+1]);  
