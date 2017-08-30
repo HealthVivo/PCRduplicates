@@ -281,7 +281,7 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 }
 
 
-int main (int argc, char** argv)
+int main (int argc, char *argv[])
 {
 	char samfile[2048]; char bamfile[2048]; char variantfile[2048]; char fastafile[2048];
 	strcpy(samfile,"None"); strcpy(bamfile,"None"); strcpy(variantfile,"None"); strcpy(fastafile,"None");
@@ -291,6 +291,8 @@ int main (int argc, char** argv)
 	int samplecol=10; // default if there is a single sample in the VCF file
 	int i=0,j=0,variants=0,hetvariants=0;
 	int bamfiles =0, vfile = 0;
+
+	fprintf(stderr,"DEBUG: # of args %d \n",argc); for (i=0;i<argc;i++) fprintf(stderr,"argument %d %s \n",argv[i]); 
 
 	logfile = NULL;
 	for (i=1;i<argc;i+=2)
