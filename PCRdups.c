@@ -1,4 +1,3 @@
-
 #include<stdio.h>
 #include<stdlib.h>
 #include<time.h>
@@ -30,7 +29,6 @@ int VARIANTS = 0;
 int VCFformat = 0;
 int PARSEINDELS =0;
 int SINGLEREADS =1;
-int FOSMIDS = 0;
 //int QVoffset = 33; declared in samread.h
 FILE* logfile;
 int PFLAG = 1;
@@ -63,7 +61,7 @@ void print_options()
 	fprintf(stderr,"--mbq  : minimum base quality to consider a base, default 13\n");
 	fprintf(stderr,"--mmq : minimum read mapping quality to consider a read, default 30\n");
 	fprintf(stderr,"--treatSE 0/1: consider paired-end reads as Single End (first in pair), default 0\n");
-	fprintf(stderr,"--filterdups 0/1: discard reads marked as Duplicates (cigar flag of 1024), default 0\n");
+	fprintf(stderr,"--filterdups 0/1: discard reads marked as Duplicates (cigar flag of 2048), default 0\n");
 	//fprintf(stderr,"--variants : variant file with genotypes for a single individual in genotype format\n");
 	//fprintf(stderr,"--indels 0/1 : extract reads spanning INDELS, default is 0, variants need to specified in VCF format to use this option\n");
 	//fprintf(stderr,"--outputVCF : 0 is default (output reads and filtered variants), 1: output VCF file of filtered variants, 2: do not output filtered variants\n");
@@ -145,7 +143,7 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 	PEread* readlist = (PEread*)malloc(sizeof(PEread)*MAX_BUFF_SIZE); int pereads = 0; int csize = 0; int prevpos = -1; 
 	int PCRdups_stats[3] = {0,0,0}; 
 	int total_reads= 0; int unique_reads=0;
-        int MAX_CSIZE = 1024;
+        int MAX_CSIZE = 2048;
         int dup_clusters[MAX_CSIZE]; for (i=0;i<MAX_CSIZE;i++) dup_clusters[i] =0; i=0; // # of clusters  
 
 
@@ -176,7 +174,7 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 		{
 			PCRdups_stats[0] +=1; 	free_readmemory(read); continue;
 		}
-		if ((read->flag & 1024)) PCRdups_stats[1] +=1; PCRdups_stats[2] +=1; 
+		if ((read->flag & 2048)) PCRdups_stats[1] +=1; PCRdups_stats[2] +=1; 
 
 
 		// find the chromosome in reflist that matches read->chrom if the previous chromosome is different from current chromosome
@@ -285,22 +283,21 @@ int parse_bamfile_sorted(char* bamfile,HASHTABLE* ht,CHROMVARS* chromvars,VARIAN
 
 int main (int argc, char** argv)
 {
-	char samfile[1024]; char bamfile[1024]; char variantfile[1024]; char fastafile[1024];
+	char samfile[2048]; char bamfile[2048]; char variantfile[2048]; char fastafile[2048];
 	strcpy(samfile,"None"); strcpy(bamfile,"None"); strcpy(variantfile,"None"); strcpy(fastafile,"None");
 	GROUPNAME = NULL;
 	int readsorted = 0;
-	char* sampleid = (char*)malloc(1024); sampleid[0] = '-'; sampleid[1] = '\0';
+	char* sampleid = (char*)malloc(2048); sampleid[0] = '-'; sampleid[1] = '\0';
 	int samplecol=10; // default if there is a single sample in the VCF file
 	int i=0,j=0,variants=0,hetvariants=0;
-	char** bamfilelist = NULL; int bamfiles =0; 
+	int bamfiles =0, vfile = 0;
 
 	logfile = NULL;
 	for (i=1;i<argc;i+=2)
 	{
-		if (strcmp(argv[i],"--bam") ==0 || strcmp(argv[i],"--bamfile") ==0)        bamfiles++; 
-		else if (strcmp(argv[i],"--variants") ==0)        strcpy(variantfile,argv[i+1]);
+		if (strcmp(argv[i],"--bam") ==0 || strcmp(argv[i],"--bamfile") ==0)  { strcpy(bamfile,argv[i+1]); bamfiles++; } 
 		else if (strcmp(argv[i],"--reffile") ==0 || strcmp(argv[i],"--ref") ==0)        strcpy(fastafile,argv[i+1]);
-		else if (strcmp(argv[i],"--VCF") ==0 || strcmp(argv[i],"--vcf") ==0)    {     strcpy(variantfile,argv[i+1]); VCFformat =1; }
+		else if (strcmp(argv[i],"--VCF") ==0 || strcmp(argv[i],"--vcf") ==0)    {     strcpy(variantfile,argv[i+1]); VCFformat =1; vfile = 1;  }
 		else if (strcmp(argv[i],"--sorted") ==0)       readsorted = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--mbq") ==0)       MINQ = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--mmq") ==0 || strcmp(argv[i],"--minmq") ==0 )       MIN_MQ = atoi(argv[i+1]);
@@ -318,20 +315,15 @@ int main (int argc, char** argv)
 		else if (strcmp(argv[i],"--outputFR")==0) OUTPUT_FR = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--treatSE")==0) TREAT_SE = atoi(argv[i+1]);  
 		else if (strcmp(argv[i],"--filterdups")==0) { FILTER_DUPS = atoi(argv[i+1]); fprintf(stderr,"read duplicates marked in BAM file will be ignored \n"); } 
+		else if (strcmp(argv[i],"--variants") ==0)      {  strcpy(variantfile,argv[i+1]); vfile = 1; } // old variant format 
 	}
-	if (bamfiles > 0 && strcmp(variantfile,"None") !=0)
+	if (bamfiles > 0 && vfile > 0)
 	{
-		bamfilelist = (char**)malloc(sizeof(char*)*bamfiles); 
-		for (i=0;i<bamfiles;i++) bamfilelist[i] = (char*)malloc(1024);
-		bamfiles=0;
-		for (i=1;i<argc;i+=2)
-		{
-			if (strcmp(argv[i],"--bam") ==0 || strcmp(argv[i],"--bamfile") ==0)     strcpy(bamfilelist[bamfiles++],argv[i+1]);
-		}
-		fprintf(stderr,"\n extracting reads covering SNPs from bamfile %s minQV %d minMQ %d maxIS %d \n\n",bamfilelist[0],MINQ,MIN_MQ,MAX_IS);
+		fprintf(stderr,"\n extracting reads covering SNPs from bamfile %s minQV %d minMQ %d maxIS %d \n\n",bamfile,MINQ,MIN_MQ,MAX_IS);
 	}
 	else
 	{
+		fprintf(stderr,"program options are missing, please specify at least one BAM file and a VCF file \n bamfiles %d  variantfile %s \n",bamfiles,variantfile); 
 		print_options(); return -1;
 	}
 
@@ -359,12 +351,7 @@ int main (int argc, char** argv)
 		for (j=0;j<POOL_SIZE;j++) varlist[i].GLL[j] = 0.0;
 	}
 
-	// variants is set to hetvariants only, but this is not correct since 
 	VARIANTS = variants;  
-	// there are two options, we include all variants in the chromvars datastructure but only use heterozygous variants for outputting HAIRS 
-	// variant-id should correspond to line-number in VCF file since that will be used for printing out variants in Hapcut 
-
-	//	fprintf(stderr,"read %d variants from file %s chromosomes %d\n",snps,argv[1],chromosomes);
 	CHROMVARS* chromvars  = (CHROMVARS*)malloc(sizeof(CHROMVARS)*chromosomes);
 	build_intervalmap(chromvars,chromosomes,varlist,VARIANTS);
 
@@ -384,13 +371,9 @@ int main (int argc, char** argv)
 			read_fasta(fastafile,reflist);
 		}
 	}
-	//return 1;
 	if (readsorted ==0 && bamfiles > 0)
 	{
-		for (i=0;i<bamfiles;i++) 
-		{
-			parse_bamfile_sorted(bamfilelist[i],&ht,chromvars,varlist,reflist);
-		}
+		parse_bamfile_sorted(bamfile,&ht,chromvars,varlist,reflist);
 	}
 	if (logfile != NULL) fclose(logfile); 
 
