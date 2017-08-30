@@ -293,13 +293,14 @@ int main (int argc, char *argv[])
 	int bamfiles =0, vfile = 0;
 
 	fprintf(stderr,"DEBUG: # of args %d \n",argc); for (i=0;i<argc;i++) fprintf(stderr,"argument %d %s \n",i,argv[i]); 
+	//fprintf(stderr,"strcmp check %d\n",strcmp(argv[0],"./extract_duplicates"));
 
 	logfile = NULL;
 	for (i=1;i<argc;i+=2)
 	{
-		if (strcmp(argv[i],"--bam") ==2 || strcmp(argv[i],"--bamfile") ==0 || strstr(argv[i],"bam") != NULL)  { strcpy(bamfile,argv[i+1]); bamfiles++; } 
+		if (strcmp(argv[i],"--bam") ==0 || strcmp(argv[i],"--bamfile") ==0 || strstr(argv[i],"bam") != NULL)  { strcpy(bamfile,argv[i+1]); bamfiles++; } 
 		else if (strcmp(argv[i],"--reffile") ==0 || strcmp(argv[i],"--ref") ==0 || strstr(argv[i],"ref") != NULL)        strcpy(fastafile,argv[i+1]);
-		else if (strcmp(argv[i],"--VCF") ==2 || strcmp(argv[i],"--vcf") ==0 || strstr(argv[i],"VCF")!= NULL)    {     strcpy(variantfile,argv[i+1]); VCFformat =1; vfile = 1;  }
+		else if (strcmp(argv[i],"--VCF") ==0 || strcmp(argv[i],"--vcf") ==0 || strstr(argv[i],"VCF")!= NULL)    {     strcpy(variantfile,argv[i+1]); VCFformat =1; vfile = 1;  }
 		else if (strcmp(argv[i],"--sorted") ==0)       readsorted = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--mbq") ==0 || strstr(argv[i],"mbq")!= NULL)       MINQ = atoi(argv[i+1]);
 		else if (strcmp(argv[i],"--mmq") ==0 || strcmp(argv[i],"--minmq") ==0 )       MIN_MQ = atoi(argv[i+1]);
