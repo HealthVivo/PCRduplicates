@@ -292,11 +292,9 @@ int main (int argc, char *argv[])
 	int i=0,j=0,variants=0,hetvariants=0;
 	int bamfiles =0, vfile = 0;
 
-	fprintf(stderr,"DEBUG: # of args %d \n",argc); for (i=0;i<argc;i++) fprintf(stderr,"argument %d %s \n",i,argv[i]); 
-	//fprintf(stderr,"strcmp check %d\n",strcmp(argv[0],"./extract_duplicates"));
 
 	logfile = NULL;
-	for (i=1;i<argc;i+=2)
+	for (i=1;i+1<argc;i+=2)
 	{
 		if (strcmp(argv[i],"--bam") ==0 || strcmp(argv[i],"--bamfile") ==0 || strstr(argv[i],"bam") != NULL)  { strcpy(bamfile,argv[i+1]); bamfiles++; } 
 		else if (strcmp(argv[i],"--reffile") ==0 || strcmp(argv[i],"--ref") ==0 || strstr(argv[i],"ref") != NULL)        strcpy(fastafile,argv[i+1]);
